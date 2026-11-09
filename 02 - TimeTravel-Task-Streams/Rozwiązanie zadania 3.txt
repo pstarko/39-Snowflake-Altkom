@@ -1,0 +1,63 @@
+-- Krok 1: Utworzenie bazy danych, schematu oraz warehouse (jeśli jeszcze nie istnieją)
+CREATE OR REPLACE DATABASE exercise_db;
+USE exercise_db;
+CREATE OR REPLACE SCHEMA public;
+
+
+
+-- Krok 2: Utworzenie tabel
+CREATE OR REPLACE TABLE staging_table (
+  id INT,
+  value VARCHAR
+);
+
+CREATE OR REPLACE TABLE main_table (
+  id INT,
+  value VARCHAR
+);
+
+
+-- Krok 3: Wstawienie przykładowych danych do tabeli staging_table
+INSERT INTO staging_table (id, value)
+SELECT rn, 'Value ' || rn
+FROM (
+  SELECT ROW_NUMBER() OVER (ORDER BY seq4()) AS rn
+  FROM TABLE(GENERATOR(ROWCOUNT => 1000))
+) AS numbers;
+
+select * from staging_table;
+
+-- Krok 4: Utworzenie zadania do wstawiania danych z staging_table do main_table
+CREATE OR REPLACE TASK task_insert_data
+  WAREHOUSE = compute_wh
+  SCHEDULE = 'USING CRON * * * * * UTC'  -- zadanie będzie uruchamiane co minutę
+AS
+INSERT INTO main_table (id, value)
+SELECT id, value FROM staging_table;
+
+
+-- Krok 5: Utworzenie zadania, które czyści tabelę staging_table po wykonaniu task_insert_data
+CREATE OR REPLACE TASK task_clean_staging
+  WAREHOUSE = compute_wh
+  AFTER task_insert_data
+AS
+TRUNCATE TABLE staging_table;
+
+
+-- Krok 6: Aktywacja zadań
+
+ALTER TASK task_clean_staging RESUME;
+ALTER TASK task_insert_data RESUME;
+
+
+-- Opcjonalnie: Ręczne uruchomienie zadań w celach testowych
+EXECUTE TASK task_insert_data;
+EXECUTE TASK task_clean_staging;
+
+
+select * from main_table
+
+select * from staging_table
+TRUNCATE TABLE main_table;
+
+drop database exercise_db;
